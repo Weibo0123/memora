@@ -1,10 +1,11 @@
-import { setAllWords, getAllWords, setCurrentReview, getCurrentReview, setCurrentPage, getCurrentPage, setIsRevealed, getIsRevealed } from './srs/memoryState.js';
-import { selectRandomReview, checkAnswer, calculateStats, calculateNextState, adjustBrightness } from './srs/scheduler.js';
-import { renderInputPage } from './ui/input.js';
-import { renderReviewPage } from './ui/review.js';
-import { renderProgressPage } from './ui/dashboard.js';
-import { saveData, loadData } from './storage/localStore.js';
+import { setAllWords, getAllWords, setCurrentReview, getCurrentReview, setCurrentPage, getCurrentPage, setIsRevealed, getIsRevealed } from './Code/scripts/srs/memoryState.js';
+import { selectRandomReview, checkAnswer, calculateStats, calculateNextState, adjustBrightness } from './Code/scripts/srs/scheduler.js';
+import { renderInputPage } from './Code/scripts/ui/input.js';
+import { renderReviewPage } from './Code/scripts/ui/review.js';
+import { renderProgressPage } from './Code/scripts/ui/dashboard.js';
+import { saveData, loadData } from './Code/scripts/storage/localStore.js';
 
+// Welcome page layout
 const defaultConfig = {
   main_headline: "Learn vocabulary with real memory, not repetition.",
   description_text: "Master any language pair with a scientific approach. Words are tested in both directions, and review timing adapts based on your true memory strength—not daily habits.",
@@ -15,15 +16,20 @@ const defaultConfig = {
 
 const appRoot = document.getElementById('app');
 
+// Main app controller
 const app = {
+  // Initialize the variables
   allWords: [],
   currentReview: null,
   currentPage: 'landing',
   isRevealed: false,
 
+  // Initialize the app, set up dataSdk and elementSdk, fetch user data and render the page
   async init() {
+    // Expose this app globally
     window.app = this;
 
+    // Create a new dataSdk object if there's not one
     if (!window.dataSdk) {
       console.warn('dataSdk not found — creating Supabase-backed dataSdk (with local fallback)');
       window.dataSdk = {
@@ -39,13 +45,17 @@ const app = {
             handler.onDataChanged(window.dataSdk._data);
             return { isOk: true };
           }
+          // Fetch user's words data from Supabase, map it to the app's format and update local cache
           try {
+            // Check if the user is authorized
             const sessionRes = await supabase.auth.getSession();
             const session = sessionRes?.data?.session;
+            // If not, only return the local data
             if (!session) {
               handler.onDataChanged(window.dataSdk._data);
               return { isOk: true };
             }
+            // if so, return all the words that created with this user in the word table in Supabase
             const { data, error } = await supabase.from('words').select('*').order('created_at', { ascending: true });
             if (error) return { isOk: false, error };
 
@@ -58,12 +68,19 @@ const app = {
               languageB: r.lang_b,
               wordB: r.word_b,
               createdAt: r.created_at,
+              // SRS fields: from the server-side
+              nextReviewDate: r.next_review ? new Date(r.next_review).getTime() : Date.now(),
+              lastReviewed: r.last_reviewed ? new Date(r.last_reviewed).getTime() : 0,
+              ease: r.ease ?? 2.5,
               // SRS fields: default values kept client-side
-              nextReviewDate: Date.now(),
               intervalDays: 1,
               masteryLevel: 0,
               correctCount: 0,
-              lastReviewed: 0
+              // AI-related fields (currently not used in the app, reserved for future)
+              level: r.level,
+              category: r.category,
+              style: r.style,
+              ai_confidence: r.ai_confidence,
             }));
 
             handler.onDataChanged(window.dataSdk._data);
@@ -77,7 +94,9 @@ const app = {
 
         // Create a new row in Supabase (requires authenticated session). Map UI -> DB.
         create: async (obj) => {
+          // Access the Supabase client to interact with the backend database
           const supabase = window.supabase;
+          // Fallback: Supabase not available, save the object locally and update the handler
           if (!supabase) {
             obj.__backendId = obj.id;
             window.dataSdk._data.push(obj);
@@ -94,13 +113,26 @@ const app = {
               lang_a: obj.languageA,
               word_a: obj.wordA,
               lang_b: obj.languageB,
-              word_b: obj.wordB
+              word_b: obj.wordB,
+
+              // SRS field
+              next_review: new Date(obj.nextReviewDate).toISOString(),
+              last_reviewed: obj.lastReviewed ? new Date(obj.lastReviewed).toISOString() : null,
+              ease: obj.ease,
+
+              // AI field
+              level: obj.level,
+              category: obj.category,
+              style: obj.style,
+              ai_confidence: obj.ai_confidence
             };
 
+            // Insert a new word record into the 'words' table and return the inserted row
             const insertRes = await supabase.from('words').insert(payload).select().single();
+            // Fallback: return the error
             if (insertRes.error) return { isOk: false, error: insertRes.error };
             const row = insertRes.data;
-
+            // The data structure of the front-end
             const mapped = {
               __backendId: row.id,
               id: row.id,
@@ -116,6 +148,7 @@ const app = {
               lastReviewed: obj.lastReviewed || 0
             };
 
+            // Update front-end memory data
             window.dataSdk._data.push(mapped);
             window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
             return { isOk: true };
@@ -127,6 +160,7 @@ const app = {
 
         // Update an existing row by DB id (uuid)
         update: async (obj) => {
+          // Access the Supabase client to interact with the backend database
           const supabase = window.supabase;
           if (!supabase) {
             window.dataSdk._data = window.dataSdk._data.map(w => w.__backendId === obj.__backendId ? obj : w);
@@ -134,17 +168,22 @@ const app = {
             return { isOk: true };
           }
           if (!obj.__backendId) return { isOk: false, error: 'missing backend id' };
+          // Update an existing word record in Supabase and synchronize the local cache
           try {
             const sessionRes = await supabase.auth.getSession();
             const session = sessionRes?.data?.session;
             if (!session) return { isOk: false, error: 'not authenticated' };
 
             const payload = {
-              // Only writable DB columns are language/word columns; other client fields remain local
+              // Only writable DB columns are language/word columns and the review data; other client fields remain local
               lang_a: obj.languageA,
               word_a: obj.wordA,
               lang_b: obj.languageB,
-              word_b: obj.wordB
+              word_b: obj.wordB,
+
+              next_review: new Date(obj.nextReviewDate).toISOString(),
+              last_reviewed: obj.lastReviewed ? new Date(obj.lastReviewed).toISOString() : null,
+              ease: obj.ease
             };
 
             const updateRes = await supabase.from('words').update(payload).eq('id', obj.__backendId).select().single();
@@ -178,6 +217,7 @@ const app = {
 
         // Delete a row by DB id (uuid)
         delete: async (obj) => {
+          // Access the Supabase client to interact with the backend database
           const supabase = window.supabase;
           if (!supabase) {
             window.dataSdk._data = window.dataSdk._data.filter(w => w.__backendId !== obj.__backendId);

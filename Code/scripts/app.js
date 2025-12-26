@@ -25,13 +25,182 @@ const app = {
     window.app = this;
 
     if (!window.dataSdk) {
-      console.warn('dataSdk not found — creating local fallback');
-      window.dataSdk = window.dataSdk || {
+      console.warn('dataSdk not found — creating Supabase-backed dataSdk (with local fallback)');
+      window.dataSdk = {
         _data: [],
-        init: async (handler) => { window.dataSdk._handler = handler; handler.onDataChanged(window.dataSdk._data); return { isOk: true }; },
-        create: async (obj) => { obj.__backendId = obj.id; window.dataSdk._data.push(obj); window.dataSdk._handler?.onDataChanged(window.dataSdk._data); return { isOk: true }; },
-        delete: async (obj) => { window.dataSdk._data = window.dataSdk._data.filter(w => w.__backendId !== obj.__backendId); window.dataSdk._handler?.onDataChanged(window.dataSdk._data); return { isOk: true }; },
-        update: async (obj) => { window.dataSdk._data = window.dataSdk._data.map(w => w.__backendId === obj.__backendId ? obj : w); window.dataSdk._handler?.onDataChanged(window.dataSdk._data); return { isOk: true }; }
+        _handler: null,
+
+        // Initialize: fetch current user's rows from Supabase (if signed in) and notify handler
+        init: async (handler) => {
+          window.dataSdk._handler = handler;
+          const supabase = window.supabase;
+          if (!supabase) {
+            // fallback to empty local dataset
+            handler.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          }
+          try {
+            const sessionRes = await supabase.auth.getSession();
+            const session = sessionRes?.data?.session;
+            if (!session) {
+              handler.onDataChanged(window.dataSdk._data);
+              return { isOk: true };
+            }
+            const { data, error } = await supabase.from('words').select('*').order('created_at', { ascending: true });
+            if (error) return { isOk: false, error };
+
+            // Map DB rows to the app's expected shape
+            window.dataSdk._data = (data || []).map(r => ({
+              __backendId: r.id,
+              id: r.id,
+              languageA: r.lang_a,
+              wordA: r.word_a,
+              languageB: r.lang_b,
+              wordB: r.word_b,
+              createdAt: r.created_at,
+              // SRS fields: default values kept client-side
+              nextReviewDate: Date.now(),
+              intervalDays: 1,
+              masteryLevel: 0,
+              correctCount: 0,
+              lastReviewed: 0
+            }));
+
+            handler.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          } catch (e) {
+            console.error('dataSdk.init error', e);
+            handler.onDataChanged(window.dataSdk._data);
+            return { isOk: false, error: e };
+          }
+        },
+
+        // Create a new row in Supabase (requires authenticated session). Map UI -> DB.
+        create: async (obj) => {
+          const supabase = window.supabase;
+          if (!supabase) {
+            obj.__backendId = obj.id;
+            window.dataSdk._data.push(obj);
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          }
+          try {
+            const sessionRes = await supabase.auth.getSession();
+            const session = sessionRes?.data?.session;
+            if (!session) return { isOk: false, error: 'not authenticated' };
+
+            const payload = {
+              user_id: session.user.id,
+              lang_a: obj.languageA,
+              word_a: obj.wordA,
+              lang_b: obj.languageB,
+              word_b: obj.wordB
+            };
+
+            const insertRes = await supabase.from('words').insert(payload).select().single();
+            if (insertRes.error) return { isOk: false, error: insertRes.error };
+            const row = insertRes.data;
+
+            const mapped = {
+              __backendId: row.id,
+              id: row.id,
+              languageA: row.lang_a,
+              wordA: row.word_a,
+              languageB: row.lang_b,
+              wordB: row.word_b,
+              createdAt: row.created_at,
+              nextReviewDate: obj.nextReviewDate || Date.now(),
+              intervalDays: obj.intervalDays || 1,
+              masteryLevel: obj.masteryLevel || 0,
+              correctCount: obj.correctCount || 0,
+              lastReviewed: obj.lastReviewed || 0
+            };
+
+            window.dataSdk._data.push(mapped);
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          } catch (e) {
+            console.error('dataSdk.create error', e);
+            return { isOk: false, error: e };
+          }
+        },
+
+        // Update an existing row by DB id (uuid)
+        update: async (obj) => {
+          const supabase = window.supabase;
+          if (!supabase) {
+            window.dataSdk._data = window.dataSdk._data.map(w => w.__backendId === obj.__backendId ? obj : w);
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          }
+          if (!obj.__backendId) return { isOk: false, error: 'missing backend id' };
+          try {
+            const sessionRes = await supabase.auth.getSession();
+            const session = sessionRes?.data?.session;
+            if (!session) return { isOk: false, error: 'not authenticated' };
+
+            const payload = {
+              // Only writable DB columns are language/word columns; other client fields remain local
+              lang_a: obj.languageA,
+              word_a: obj.wordA,
+              lang_b: obj.languageB,
+              word_b: obj.wordB
+            };
+
+            const updateRes = await supabase.from('words').update(payload).eq('id', obj.__backendId).select().single();
+            if (updateRes.error) return { isOk: false, error: updateRes.error };
+            const row = updateRes.data;
+
+            // update local copy
+            window.dataSdk._data = window.dataSdk._data.map(w => w.__backendId === obj.__backendId ? {
+              ...w,
+
+              languageA: row.lang_a,
+              wordA: row.word_a,
+              languageB: row.lang_b,
+              wordB: row.word_b,
+              createdAt: row.created_at,
+
+              nextReviewDate: obj.nextReviewDate,
+              intervalDays: obj.intervalDays,
+              masteryLevel: obj.masteryLevel,
+              correctCount: obj.correctCount,
+              lastReviewed: obj.lastReviewed
+            } : w);
+
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          } catch (e) {
+            console.error('dataSdk.update error', e);
+            return { isOk: false, error: e };
+          }
+        },
+
+        // Delete a row by DB id (uuid)
+        delete: async (obj) => {
+          const supabase = window.supabase;
+          if (!supabase) {
+            window.dataSdk._data = window.dataSdk._data.filter(w => w.__backendId !== obj.__backendId);
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          }
+          if (!obj.__backendId) return { isOk: false, error: 'missing backend id' };
+          try {
+            const sessionRes = await supabase.auth.getSession();
+            const session = sessionRes?.data?.session;
+            if (!session) return { isOk: false, error: 'not authenticated' };
+
+            const deleteRes = await supabase.from('words').delete().eq('id', obj.__backendId).select();
+            if (deleteRes.error) return { isOk: false, error: deleteRes.error };
+
+            window.dataSdk._data = window.dataSdk._data.filter(w => w.__backendId !== obj.__backendId);
+            window.dataSdk._handler?.onDataChanged(window.dataSdk._data);
+            return { isOk: true };
+          } catch (e) {
+            console.error('dataSdk.delete error', e);
+            return { isOk: false, error: e };
+          }
+        }
       };
     }
 
@@ -153,7 +322,9 @@ const app = {
       document.getElementById('wordB').value = '';
       document.getElementById('wordA').focus();
     } else {
-      this.showInlineMessage('Failed to add word. Please try again.', 'error');
+      console.error('Add word failed:', result.error);
+      const errMsg = result.error?.message || result.error || 'Failed to add word. Please try again.';
+      this.showInlineMessage(`Failed to add word: ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`, 'error');
     }
     addBtn.disabled = false;
     addBtn.textContent = 'Add Word Pair';
@@ -163,7 +334,11 @@ const app = {
     const wordToDelete = this.allWords.find(w => w.__backendId === backendId);
     if (!wordToDelete) return;
     const result = await window.dataSdk.delete(wordToDelete);
-    if (!result.isOk) this.showInlineMessage('Failed to delete word. Please try again.', 'error');
+    if (!result.isOk) {
+      console.error('Delete word failed:', result.error);
+      const errMsg = result.error?.message || result.error || 'Failed to delete word. Please try again.';
+      this.showInlineMessage(`Failed to delete word: ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`, 'error');
+    }
   },
 
   getDueWords() {
@@ -177,6 +352,14 @@ const app = {
 
   getCurrentReview() {
     return this.currentReview;
+  },
+
+  setIsRevealed(val) {
+    this.isRevealed = val;
+  },
+
+  getIsRevealed() {
+    return this.isRevealed;
   },
 
   setCurrentPage(page) {
@@ -211,7 +394,9 @@ const app = {
       this.isRevealed = false;
       this.render();
     } else {
-      this.showInlineMessage('Failed to save feedback. Please try again.', 'error');
+      console.error('Update word failed:', result.error);
+      const errMsg = result.error?.message || result.error || 'Failed to save feedback. Please try again.';
+      this.showInlineMessage(`Failed to save feedback: ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`, 'error');
     }
   },
 

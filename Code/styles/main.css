@@ -86,11 +86,12 @@ body {
   background: none;
   border: 1px solid #d1d9e0;
   color: #5a6c7d;
-  padding: 8px 16px;
-  border-radius: 6px;
+  padding: 12px 24px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
+  border-radius: 8px;
+  margin-top: 32px;
   transition: all 0.2s;
 }
 
@@ -610,11 +611,16 @@ body {
   box-shadow: 0 10px 30px rgba(0,0,0,0.12);
   text-align: left;
 }
+
+#signUpBtn {
+  margin-right: 25px;
+}
 .login-card h2 { margin: 0 0 6px 0; font-size: 20px; }
 .login-card .muted { color: #95a6a6; margin: 0 0 16px 0; }
 .login-card .form-group { margin-bottom: 12px; }
 .login-card .form-group label { font-size: 13px; color: #2c3e50; display:block; margin-bottom:6px; }
 .login-card .form-group input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #d1d9e0; }
 .login-actions { display:flex; gap:12px; justify-content:flex-end; margin-top:14px; }
-.login-actions .nav-button { background: none; border: 1px solid #d1d9e0; color: #5a6c7d; padding: 8px 14px; }
+.login-actions .nav-button { background: none; border: 1px solid #d1d9e0; color: #5a6c7d; padding: 16px 48px; border-radius: 8px; font-size: 18px; }
+.login-actions .cta-button, .login-actions .nav-button { min-width: 160px; }
 

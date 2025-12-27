@@ -7,8 +7,8 @@ import { saveData, loadData } from './storage/localStore.js';
 
 // Welcome page layout
 const defaultConfig = {
-  main_headline: "Learn vocabulary with real memory, not repetition.",
-  description_text: "Master any language pair with a scientific approach. Words are tested in both directions, and review timing adapts based on your true memory strength—not daily habits.",
+  main_headline: "Learn vocabulary with real memory.",
+  description_text: "Master any language pair with a scientific approach. Words are tested in both directions, and review timing adapts based on your true memory strength.",
   cta_button_text: "Start Learning",
   language_a_label: "Language A",
   language_b_label: "Language B"
@@ -186,6 +186,7 @@ const app = {
               ease: obj.ease
             };
 
+            // Synchronize the data modified on the front end to the database.
             const updateRes = await supabase.from('words').update(payload).eq('id', obj.__backendId).select().single();
             if (updateRes.error) return { isOk: false, error: updateRes.error };
             const row = updateRes.data;
@@ -225,6 +226,7 @@ const app = {
             return { isOk: true };
           }
           if (!obj.__backendId) return { isOk: false, error: 'missing backend id' };
+          // delete a word from Supabase and update the local cache if successful
           try {
             const sessionRes = await supabase.auth.getSession();
             const session = sessionRes?.data?.session;
@@ -243,12 +245,12 @@ const app = {
         }
       };
     }
-
+    // If elementSdk is not found, create a local fallback to allow UI initialization
     if (!window.elementSdk) {
       console.warn('elementSdk not found — creating local fallback');
       window.elementSdk = window.elementSdk || { init: async () => ({}), setConfig: () => {}, config: defaultConfig };
     }
-
+    // Handle whenever the data changes, sorts words by creation date and re-renders the page
     const dataHandler = {
       onDataChanged: (data) => {
         this.allWords = data.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -256,9 +258,11 @@ const app = {
       }
     };
 
+    // Initialize DataSdk
     const initResult = await window.dataSdk.init(dataHandler);
     if (!initResult.isOk) console.error('Failed to initialize data SDK');
 
+    // Initialize elementSdk
     await window.elementSdk.init({
       defaultConfig,
       onConfigChange: async (config) => { this.render(); },
@@ -268,6 +272,7 @@ const app = {
     this.render();
   },
 
+  // Render the UI based on the current page and elementSdk configuration
   render() {
     const config = window.elementSdk?.config || defaultConfig;
     const bgColor = config.background_color || '#fafafa';
@@ -278,6 +283,7 @@ const app = {
     const fontFamily = config.font_family || 'Inter';
     const fontSize = config.font_size || 16;
 
+    // Set the page style
     document.body.style.background = bgColor;
     document.body.style.color = textColor;
     document.body.style.fontFamily = `${fontFamily}, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
@@ -300,12 +306,12 @@ const app = {
     style.setAttribute('data-dynamic', 'true');
     document.head.appendChild(style);
 
+    // Render the page content
     if (this.currentPage === 'landing') {
       appRoot.innerHTML = `
         <div class="landing-page">
           <h1>${config.main_headline || defaultConfig.main_headline}</h1>
           <p>${config.description_text || defaultConfig.description_text}</p>
-          <p>Users can input any two languages. Words are tested in both directions. Review timing adapts based on memory strength.</p>
           <button class="cta-button" onclick="window.app.navigateTo('input')">${config.cta_button_text || defaultConfig.cta_button_text}</button>
         </div>
       `;
@@ -330,19 +336,24 @@ const app = {
     }
   },
 
+  // Words adding handler
   async addWord(event) {
     event.preventDefault();
+    // Check the word limit
     if (this.allWords.length >= 999) {
       this.showInlineMessage('Maximum limit of 999 words reached. Please delete some words first.', 'error');
       return;
     }
+    // Get the user input
     const langA = document.getElementById('langA').value.trim();
     const wordA = document.getElementById('wordA').value.trim();
     const langB = document.getElementById('langB').value.trim();
     const wordB = document.getElementById('wordB').value.trim();
     const addBtn = document.getElementById('addBtn');
+    // Disable the button and show loading
     addBtn.disabled = true;
     addBtn.textContent = 'Adding...';
+    // Save the data
     const now = Date.now();
     const result = await window.dataSdk.create({
       id: `word-${now}`,
@@ -357,6 +368,7 @@ const app = {
       lastReviewed: 0,
       createdAt: new Date().toISOString()
     });
+    // Show different UI base on the different results
     if (result.isOk) {
       document.getElementById('wordA').value = '';
       document.getElementById('wordB').value = '';
@@ -370,9 +382,12 @@ const app = {
     addBtn.textContent = 'Add Word Pair';
   },
 
+  // Words deleting handler
   async deleteWord(backendId) {
+    // Find the words that the user wants to delete
     const wordToDelete = this.allWords.find(w => w.__backendId === backendId);
     if (!wordToDelete) return;
+    // Save the data
     const result = await window.dataSdk.delete(wordToDelete);
     if (!result.isOk) {
       console.error('Delete word failed:', result.error);
@@ -381,23 +396,28 @@ const app = {
     }
   },
 
+  // Get the words that need to be reviewed
   getDueWords() {
     const now = Date.now();
     return this.allWords.filter(word => word.nextReviewDate <= now);
   },
 
+  // Mark the words that need to be reviewed
   setCurrentReview(review) {
     this.currentReview = review;
   },
 
+  // Get the words that are reviewing currently
   getCurrentReview() {
     return this.currentReview;
   },
 
+  // Set whether the current review answer is revealed
   setIsRevealed(val) {
     this.isRevealed = val;
   },
 
+  // Get the current state of answer visibility
   getIsRevealed() {
     return this.isRevealed;
   },
@@ -406,6 +426,7 @@ const app = {
     this.currentPage = page;
   },
 
+  // Navigate to a different page
   navigateTo(page) {
     this.currentPage = page;
     if (page === 'review') {
@@ -415,6 +436,7 @@ const app = {
     this.render();
   },
 
+  // Reveal the correct answer and generate the automatic feedback
   revealAnswer() {
     this.isRevealed = true;
     const userAnswer = document.getElementById('answerInput')?.value || '';
@@ -425,6 +447,7 @@ const app = {
     this.render();
   },
 
+  // Submit user's feedback for the words
   async submitFeedback(feedback) {
     const word = this.currentReview.word;
     const updatedWord = calculateNextState(word, feedback);
@@ -440,6 +463,7 @@ const app = {
     }
   },
 
+  // Calculate the memory state
   calculateStats() {
     const recognition = this.allWords.filter(w => w.masteryLevel < 0.7).length;
     const comprehension = this.allWords.filter(w => w.masteryLevel >= 0.7 && w.masteryLevel < 1.5).length;
@@ -447,6 +471,7 @@ const app = {
     return { recognition, comprehension, active };
   },
 
+  // Show the inline message
   showInlineMessage(message, type) {
     const messageDiv = document.createElement('div');
     messageDiv.textContent = message;
@@ -466,6 +491,7 @@ const app = {
     setTimeout(() => messageDiv.remove(), 3000);
   },
 
+  // Allow user to sign out their account
   async signOut() {
     const ok = window.confirm('Are you sure you want to sign out?');
     if (!ok) return;

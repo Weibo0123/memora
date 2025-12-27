@@ -29,7 +29,7 @@ export function renderReviewPage(config, currentReview, isRevealed) {
         <div class="review-card">
           <div class="review-prompt">Translate from ${promptLang}</div>
           <div class="review-word">${escapeHtml(promptWord)}</div>
-          <input type="text" class="answer-input" id="answerInput" placeholder="Type your answer..." autofocus>
+          <input type="text" class="answer-input" id="answerInput" placeholder="Type your answer..." autocomplete="new-password" autocapitalize="off" spellcheck="false" inputmode="text" autofocus>
           <button class="reveal-button" onclick="window.app.revealAnswer()">Check Answer</button>
         </div>
       </div>

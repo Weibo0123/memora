@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
  <head>
+     <!-- Page character encoding -->
   <meta charset="UTF-8">
      <!-- Responsive viewport settings for proper display on mobile devices -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <!-- Page title -->
   <title>Vocabulary Learning Platform</title>
   <link rel="stylesheet" href="Code/styles/main.css">
      <!-- Include Tailwind CSS from CDN -->
@@ -13,24 +15,30 @@
     <!-- Login screen container -->
     <div id="login-screen" class="login-screen">
         <div class="login-card">
+            <!-- Login heading -->
             <h2>Sign in to Vocabulary Platform</h2>
+            <!-- Login instruction -->
             <p class="muted">Enter your email and password to continue</p>
+            <!-- Email input field -->
             <div class="form-group">
                 <label for="authEmail">Email</label>
                 <input id="authEmail" type="email" placeholder="you@example.com">
             </div>
+            <!-- Password input field -->
             <div class="form-group">
                 <label for="authPassword">Password</label>
                 <input id="authPassword" type="password" placeholder="Password">
             </div>
+            <!-- Login and sign up buttons -->
             <div class="login-actions">
                 <button id="signUpBtn" class="nav-button">Sign Up</button>
                 <button id="loginBtn" class="cta-button">Login</button>
             </div>
+            <!-- Area to display authentication messages (hidden by default) -->
             <div id="authMessage" class="empty-state" style="display:none;margin-top:12px;"></div>
         </div>
     </div>
-
+    <!-- Main app container, shown after successful login -->
     <div class="app-container" id="app" style="display:none;"></div>
     <script type="module" src="Code/scripts/auth.js"></script>
     <script type="module" src="Code/scripts/app.js"></script>
